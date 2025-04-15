@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Devu's Bill Tracker</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        ::selection { background: #60A5FA; color: #FFFFFF; }
+        input, select, textarea { font-family: 'Inter', sans-serif; }
+    </style>
+</head>
+<body class="bg-gray-100 dark:bg-gray-900 text-gray-800 dark:text-gray-200 transition-colors duration-300 min-h-screen">
+    <!-- Header -->
+    <header class="fixed top-0 w-full bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 z-10">
+        <div class="container mx-auto px-4 py-4 flex justify-between items-center">
+            <h1 class="text-xl font-semibold">Devu's Bills</h1>
+            <div class="flex items-center space-x-4">
+                <input type="number" id="budgetInput" placeholder="Set Budget" min="0" step="0.01" class="w-24 p-1 rounded bg-gray-200 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 text-sm" aria-label="Monthly Budget">
+                <select id="monthFilter" class="p-1 rounded bg-gray-200 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 text-sm" aria-label="Filter by Month">
+                    <option value="all">All Months</option>
+                </select>
+                <button id="toggleTheme" class="p-1 rounded bg-gray-200 dark:bg-gray-800 hover:bg-gray-300 dark:hover:bg-gray-700 transition-colors" aria-label="Toggle Theme">
+                    <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                        <path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z" />
+                    </svg>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="container mx-auto px-4 pt-20 pb-8">
+        <!-- Bill Entry Form -->
+        <section class="mb-8 bg-white dark:bg-gray-900 p-6 rounded-lg border border-gray-200 dark:border-gray-800">
+            <h2 class="text-lg font-medium mb-4">New Bill</h2>
+            <form id="billForm" class="space-y-4">
+                <input type="text" id="billName" placeholder="Bill Name" class="w-full p-2 rounded border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-800" required aria-label="Bill Name">
+                <textarea id="billDesc" placeholder="Description" class="w-full p-2 rounded border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-800" rows="2" aria-label="Bill Description"></textarea>
+                <input type="number" id="billAmount" placeholder="Amount" min="0" step="0.01" class="w-full p-2 rounded border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-800" required aria-label="Bill Amount">
+                <select id="billCategory" class="w-full p-2 rounded border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-800" aria-label="Bill Category">
+                    <option value="">Select Category</option>
+                    <option value="Food">Food</option>
+                    <option value="Home Items">Home Items</option>
+                    <option value="Medicine">Medicine</option>
+                    <option value="Travel">Travel</option>
+                    <option value="Personal">Personal</option>
+                    <option value="Neighbors">Neighbors</option>
+                    <option value="Etc">Etc</option>
+                </select>
+                <input type="file" id="billImage" accept="image/*" class="w-full p-2 text-gray-600 dark:text-gray-400" aria-label="Upload Bill Image">
+                <div id="imagePreview" class="mt-2"></div>
+                <button type="submit" class="w-full bg-gray-800 dark:bg-gray-700 text-white p-2 rounded hover:bg-gray-700 dark:hover:bg-gray-600 transition-colors">Save</button>
+            </form>
+        </section>
+
+        <!-- Budget Display -->
+        <div id="budgetDisplay" class="mb-6 text-sm text-gray-600 dark:text-gray-400"></div>
+
+        <!-- Search & Category Filter -->
+        <div class="flex space-x-4 mb-6">
+            <input type="text" id="searchInput" placeholder="Search bills..." class="w-full p-2 rounded border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-800" aria-label="Search Bills">
+            <select id="categoryFilter" class="p-2 rounded border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-800" aria-label="Filter by Category">
+                <option value="all">All Categories</option>
+                <option value="Food">Food</option>
+                <option value="Home Items">Home Items</option>
+                <option value="Medicine">Medicine</option>
+                <option value="Travel">Travel</option>
+                <option value="Personal">Personal</option>
+                <option value="Neighbors">Neighbors</option>
+                <option value="Etc">Etc</option>
+            </select>
+        </div>
+
+        <!-- Bill Display -->
+        <section id="billsContainer" class="space-y-6"></section>
+    </main>
+
+    <!-- Toast Container -->
+    <div id="toast" class="fixed bottom-4 right-4 bg-gray-800 text-white p-3 rounded hidden flex items-center space-x-2">
+        <span id="toastMessage"></span>
+        <button id="undoDelete" class="text-blue-400 hover:text-blue-300 hidden">Undo</button>
+    </div>
+
+    <script>
+        // Initialize
+        const bills = JSON.parse(localStorage.getItem('bills')) || [];
+        let filteredBills = [...bills];
+        let deletedBill = null;
+        let monthlyBudget = parseFloat(localStorage.getItem('budget')) || 0;
+
+        // DOM Elements
+        const billForm = document.getElementById('billForm');
+        const billsContainer = document.getElementById('billsContainer');
+        const monthFilter = document.getElementById('monthFilter');
+        const categoryFilter = document.getElementById('categoryFilter');
+        const searchInput = document.getElementById('searchInput');
+        const toggleTheme = document.getElementById('toggleTheme');
+        const toast = document.getElementById('toast');
+        const toastMessage = document.getElementById('toastMessage');
+        const undoDelete = document.getElementById('undoDelete');
+        const imagePreview = document.getElementById('imagePreview');
+        const budgetInput = document.getElementById('budgetInput');
+        const budgetDisplay = document.getElementById('budgetDisplay');
+
+        // Theme Toggle
+        toggleTheme.addEventListener('click', () => {
+            document.body.classList.toggle('dark');
+            localStorage.setItem('theme', document.body.classList.contains('dark') ? 'dark' : 'light');
+        });
+        if (localStorage.getItem('theme') === 'dark') document.body.classList.add('dark');
+
+        // Budget Management
+        budgetInput.value = monthlyBudget > 0 ? monthlyBudget.toFixed(2) : '';
+        budgetInput.addEventListener('change', (e) => {
+            monthlyBudget = Math.max(0, parseFloat(e.target.value) || 0);
+            localStorage.setItem('budget', monthlyBudget);
+            e.target.value = monthlyBudget > 0 ? monthlyBudget.toFixed(2) : '';
+            updateBudgetDisplay();
+        });
+
+        // Form Submission
+        billForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const name = document.getElementById('billName').value.trim();
+            const desc = document.getElementById('billDesc').value.trim();
+            const amount = parseFloat(document.getElementById('billAmount').value);
+            const category = document.getElementById('billCategory').value;
+            const file = document.getElementById('billImage').files[0];
+
+            if (!name || isNaN(amount) || amount <= 0) {
+                return showToast('Valid name and positive amount required');
+            }
+
+            const bill = {
+                id: Date.now(),
+                name,
+                desc,
+                amount,
+                category,
+                date: new Date().toISOString(),
+                image: file ? await toBase64(file) : null
+            };
+
+            bills.push(bill);
+            localStorage.setItem('bills', JSON.stringify(bills));
+            billForm.reset();
+            imagePreview.innerHTML = '';
+            showToast('Bill saved');
+            renderBills();
+            updateBudgetDisplay();
+        });
+
+        // Image Preview
+        document.getElementById('billImage').addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = () => {
+                    imagePreview.innerHTML = `<img src="${reader.result}" class="w-24 h-24 object-cover rounded" alt="Bill preview">`;
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+
+        // Render Bills
+        function renderBills() {
+            const groupedBills = groupByMonth(filteredBills);
+            billsContainer.innerHTML = '';
+            
+            Object.entries(groupedBills).forEach(([month, monthBills]) => {
+                const monthDiv = document.createElement('div');
+                monthDiv.innerHTML = `
+                    <div class="flex justify-between items-center mb-4">
+                        <h2 class="text-lg font-medium">${month}</h2>
+                        <div class="space-x-2">
+                            <button class="export-pdf text-sm text-blue-500 hover:text-blue-400" data-month="${month}">PDF</button>
+                            <button class="export-zip text-sm text-blue-500 hover:text-blue-400" data-month="${month}">ZIP</button>
+                        </div>
+                    </div>
+                    <div class="space-y-4"></div>
+                `;
+                const cardsContainer = monthDiv.querySelector('.space-y-4');
+                
+                monthBills.forEach(bill => {
+                    const card = document.createElement('div');
+                    card.className = 'bg-white dark:bg-gray-900 p-4 rounded-lg border border-gray-200 dark:border-gray-800 hover:border-gray-300 dark:hover:border-gray-700 transition-colors';
+                    card.innerHTML = `
+                        <div class="flex justify-between">
+                            <h3 class="font-medium">${escapeHTML(bill.name)}</h3>
+                            <span class="text-sm text-gray-500 dark:text-gray-400">${bill.category || 'Uncategorized'}</span>
+                        </div>
+                        <p class="text-sm text-gray-600 dark:text-gray-400 truncate">${escapeHTML(bill.desc)}</p>
+                        <p class="font-medium">$${bill.amount.toFixed(2)}</p>
+                        <p class="text-xs text-gray-500 dark:text-gray-600">${new Date(bill.date).toLocaleString()}</p>
+                        ${bill.image ? `<img src="${bill.image}" class="w-16 h-16 object-cover rounded mt-2 cursor-pointer" onclick="this.classList.toggle('w-48'); this.classList.toggle('h-48');" alt="Bill image">` : ''}
+                        <button class="delete-bill mt-2 text-sm text-gray-500 hover:text-red-500 transition-colors" data-id="${bill.id}" aria-label="Delete bill">Delete</button>
+                    `;
+                    cardsContainer.appendChild(card);
+                });
+                
+                billsContainer.appendChild(monthDiv);
+            });
+
+            // Populate month filter
+            const months = [...new Set(bills.map(b => new Date(b.date).toLocaleString('default', { month: 'long', year: 'numeric' })))]
+                .sort((a, b) => new Date(b) - new Date(a));
+            monthFilter.innerHTML = '<option value="all">All Months</option>' + months.map(m => `<option value="${m}">${m}</option>`).join('');
+        }
+
+        // Group by Month
+        function groupByMonth(bills) {
+            return bills.reduce((acc, bill) => {
+                const month = new Date(bill.date).toLocaleString('default', { month: 'long', year: 'numeric' });
+                acc[month] = acc[month] || [];
+                acc[month].push(bill);
+                return acc;
+            }, {});
+        }
+
+        // Delete Bill with Undo
+        billsContainer.addEventListener('click', (e) => {
+            if (e.target.classList.contains('delete-bill')) {
+                const id = parseInt(e.target.dataset.id);
+                const index = bills.findIndex(b => b.id === id);
+                deletedBill = bills.splice(index, 1)[0];
+                localStorage.setItem('bills', JSON.stringify(bills));
+                showToast('Bill deleted', true);
+                renderBills();
+                updateBudgetDisplay();
+            }
+        });
+
+        undoDelete.addEventListener('click', () => {
+            if (deletedBill) {
+                bills.push(deletedBill);
+                localStorage.setItem('bills', JSON.stringify(bills));
+                deletedBill = null;
+                showToast('Bill restored');
+                renderBills();
+                updateBudgetDisplay();
+            }
+        });
+
+        // Export PDF
+        billsContainer.addEventListener('click', async (e) => {
+            if (e.target.classList.contains('export-pdf')) {
+                const month = e.target.dataset.month;
+                const { jsPDF } = window.jspdf;
+                const doc = new jsPDF();
+                const monthBills = filteredBills.filter(b => 
+                    new Date(b.date).toLocaleString('default', { month: 'long', year: 'numeric' }) === month
+                );
+
+                doc.text(`Bills for ${month}`, 10, 10);
+                let y = 20;
+                for (const bill of monthBills) {
+                    doc.text(`${bill.name} (${bill.category || 'Uncategorized'}): $${bill.amount.toFixed(2)} - ${new Date(bill.date).toLocaleString()}`, 10, y);
+                    y += 10;
+                    if (bill.image) {
+                        doc.addImage(bill.image, 'JPEG', 10, y, 40, 40);
+                        y += 50;
+                    }
+                    if (y > 280) {
+                        doc.addPage();
+                        y = 10;
+                    }
+                }
+                doc.save(`bills_${month.replace(/\s+/g, '_')}.pdf`);
+                showToast('PDF exported');
+            }
+        });
+
+        // Export ZIP
+        billsContainer.addEventListener('click', async (e) => {
+            if (e.target.classList.contains('export-zip')) {
+                const month = e.target.dataset.month;
+                const zip = new JSZip();
+                const monthBills = filteredBills.filter(b => 
+                    new Date(b.date).toLocaleString('default', { month: 'long', year: 'numeric' }) === month
+                );
+
+                monthBills.forEach((bill, i) => {
+                    if (bill.image) {
+                        const base64Data = bill.image.split(',')[1];
+                        zip.file(`${bill.name.replace(/[^a-z0-9]/gi, '_')}_${i}.jpg`, base64Data, { base64: true });
+                    }
+                });
+
+                const content = await zip.generateAsync({ type: 'blob' });
+                saveAs(content, `bills_images_${month.replace(/\s+/g, '_')}.zip`);
+                showToast('ZIP exported');
+            }
+        });
+
+        // Filters
+        monthFilter.addEventListener('change', filterBills);
+        categoryFilter.addEventListener('change', filterBills);
+        searchInput.addEventListener('input', filterBills);
+
+        function filterBills() {
+            const month = monthFilter.value;
+            const category = categoryFilter.value;
+            const search = searchInput.value.toLowerCase();
+
+            filteredBills = bills.filter(b => {
+                const matchesMonth = month === 'all' || new Date(b.date).toLocaleString('default', { month: 'long', year: 'numeric' }) === month;
+                const matchesCategory = category === 'all' || b.category === category;
+                const matchesSearch = b.name.toLowerCase().includes(search) || (b.desc && b.desc.toLowerCase().includes(search));
+                return matchesMonth && matchesCategory && matchesSearch;
+            });
+            renderBills();
+            updateBudgetDisplay();
+        }
+
+        // Budget Display
+        function updateBudgetDisplay() {
+            const currentMonth = new Date().toLocaleString('default', { month: 'long', year: 'numeric' });
+            const monthBills = bills.filter(b => new Date(b.date).toLocaleString('default', { month: 'long', year: 'numeric' }) === currentMonth);
+            const totalSpent = monthBills.reduce((sum, b) => sum + (b.amount || 0), 0);
+            const percentage = monthlyBudget ? (totalSpent / monthlyBudget) * 100 : 0;
+
+            budgetDisplay.innerHTML = monthlyBudget > 0
+                ? `Budget: $${monthlyBudget.toFixed(2)} | Spent: $${totalSpent.toFixed(2)} (${percentage.toFixed(1)}%)`
+                : 'Set a budget to track spending';
+            budgetDisplay.className = `mb-6 text-sm ${percentage > 100 ? 'text-red-500' : 'text-gray-600 dark:text-gray-400'}`;
+        }
+
+        // Helpers
+        function toBase64(file) {
+            return new Promise((resolve) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result);
+                reader.readAsDataURL(file);
+            });
+        }
+
+        function escapeHTML(str) {
+            if (!str) return '';
+            return str.replace(/[&<>"']/g, match => ({
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#39;'
+            })[match]);
+        }
+
+        function showToast(message, showUndo = false) {
+            toastMessage.textContent = message;
+            toast.classList.remove('hidden');
+            undoDelete.classList.toggle('hidden', !showUndo);
+            setTimeout(() => {
+                toast.classList.add('hidden');
+                if (!showUndo) deletedBill = null;
+            }, 3000);
+        }
+
+        // Initial Render
+        renderBills();
+        updateBudgetDisplay();
+    </script>
+</body>
+</html>
